@@ -23,7 +23,17 @@ if(PS5_SDL3_HOST_TEST)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
     add_link_options(-fsanitize=address,undefined)
 else()
-    message(FATAL_ERROR "Only the host contract build exists so far")
+    # Selects the PS5 branch that ps5-platform.patch adds to SDL's CMakeLists.txt.
+    set(PS5 ON CACHE BOOL "" FORCE)
+    set(SDL_CLOCK_GETTIME ON CACHE BOOL "" FORCE)
+    # Configure probes only compile here, so they accept anything the SDK headers
+    # declare. A native title cannot spawn processes: keep SDL's dummy backend.
+    set(HAVE_POSIX_SPAWN 0 CACHE INTERNAL "native PS5 title contract" FORCE)
+    # The native title's libc does not export these header-declared symbols; the
+    # folder link rejects them. Use SDL's own implementations.
+    foreach(symbol WCSNLEN WCSLCPY WCSLCAT)
+        set(LIBC_HAS_${symbol} 0 CACHE INTERNAL "native libc contract" FORCE)
+    endforeach()
 endif()
 add_subdirectory("${SDL_SOURCE}" sdl)
 

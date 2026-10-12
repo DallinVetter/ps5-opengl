@@ -85,6 +85,44 @@ fullscreen-only capability replaces the size-rejection logic, SDL's video-thread
 record replaces the private one, and there is no `SDL_SetWindowSize` hook, so
 that call reports "not supported" and leaves the size unchanged.
 
+## Platform patch
+
+Upstream SDL3 has no public PS5 platform, so [ps5-platform.patch](ps5-platform.patch)
+adds a minimal one to the pinned source (42 added lines, applied in the build
+directory):
+
+- `SDL_platform_defines.h`: `__PROSPERO__` defines `SDL_PLATFORM_PS5` and removes
+  `SDL_PLATFORM_UNIX` and `SDL_PLATFORM_FREEBSD`, which the PS5 compiler's
+  `__unix__` and `__FreeBSD__` predefines would otherwise select.
+- `SDL_dynapi.h`: the dynamic API is off; SDL is linked statically.
+- `CMakeLists.txt`: a `PS5` branch with pthreads and SDL's POSIX time and timer
+  backends. Everything else (audio, joystick, filesystem, fsops, loadso, locale,
+  process, misc) uses SDL's existing dummy backends.
+- `SDL_sysvideo.h`, `SDL_video.c`: register `PS5_bootstrap`.
+- `SDL.c`: `SDL_GetPlatform()` returns `"PlayStation 5"`.
+
+Removing the two platform macros globally is **provisional**. In the sources
+this build compiles, they gate: the GTK include and `SDL_Gtk_Quit()` call, tray
+polling in the event loop, a `dlsym` lookup of `environ` (now a plain
+`extern`), `<sys/param.h>` in cpuinfo, `<sys/endian.h>` in `SDL_endian.h` (now
+the compiler's byte-order predefines), the dlopen-note macros and the platform
+name. The native build has no warnings and the linked title imports no `dl*`
+symbol. The only raw `__FreeBSD__` test left in a compiled file is in SDL's
+bundled dlmalloc, which is unused because the title's `malloc` is. So far this
+shows no collateral damage; hardware has not confirmed it. If it does cause
+trouble, the fallback is two narrow guards (the `SDL_Gtk_Quit()` call in `SDL.c`
+and the `dlsym` branch in `SDL_getenv.c`) with the macros left alone.
+
+Two things the native link decided:
+
+- SDL's POSIX fsops cannot be combined with its dummy filesystem backend (both
+  define `SDL_SYS_GetCurrentDirectory`), so fsops stays a dummy too. Filesystem
+  work is deferred with the rest of OpenGOAL's filesystem needs.
+- Configure probes only compile for this target, so they accept anything the
+  SDK headers declare. The wrapper overrides the ones the folder link or the
+  platform rejects: `wcsnlen`, `wcslcpy` and `wcslcat` (SDL's implementations
+  are used) and `posix_spawn` (SDL's dummy process backend is used).
+
 ## Host contract
 
 Real SDL3 and the real driver run against an EGL boundary double under
@@ -120,8 +158,20 @@ refused teardown becomes visible. A passing run prints:
 The host contract links the same object and drives it through its success and
 failure paths against the EGL/GL double.
 
+## Native build
+
+```sh
+template=/path/to/ps5-native-app-boilerplate    # at the pinned revision
+python3 integration/SDL3/build.py native --sdl-source third_party/SDL \
+    --sdk-prefix build/sdk/ps5-opengl-gl46 --out build/sdl3-native \
+    --payload-sdk "$template/.deps/native/ps5-payload-sdk" \
+    --compiler-wrapper "$template/tooling/prospero-clang18"
+```
+
+This compiles `cmake/sdl/libSDL3.a` and the example object for PS5. It links
+nothing and runs nothing.
+
 ## Not done yet
 
-The PS5 platform part of the patch (threads, timers, platform detection), the
-native build, the native folder link and the hardware run. Gamepad support
-follows the hardware milestone.
+Assembling the native folder and the hardware run. Gamepad support follows the
+hardware milestone.

@@ -1,7 +1,86 @@
 # PS5 OpenGL contributions: Copyright (C) 2026 BlackBearReloaded.
 # PS5 platform adaptation of SDL release-3.4.10; upstream SDL's zlib notices remain applicable.
-# Registers the out-of-tree PS5 video driver (integration/SDL3/SDL_ps5video.c).
+# Adds a minimal native PS5 platform (pthreads, POSIX time and timers, static API) and
+# registers the out-of-tree PS5 video driver (integration/SDL3/SDL_ps5video.c).
 
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -3409,6 +3409,27 @@ elseif(NGAGE)
+       scdv
+       gdi
+   )
++
++elseif(PS5)
++  # Native PS5 title: pthreads and POSIX clocks from the title's libc. The video
++  # driver is attached by the including project; the rest uses SDL's dummies.
++  # (SDL's POSIX fsops cannot be combined with its dummy filesystem backend.)
++  CheckPTHREAD()
++
++  set(SDL_TIME_UNIX 1)
++  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/time/unix/*.c")
++  set(HAVE_SDL_TIME TRUE)
++
++  set(SDL_TIMER_UNIX 1)
++  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/timer/unix/*.c")
++  set(HAVE_SDL_TIMERS TRUE)
++  if(SDL_CLOCK_GETTIME)
++    set(HAVE_CLOCK_GETTIME 1)
++  endif()
++
++  if(SDL_VIDEO)
++    set(HAVE_SDL_VIDEO TRUE)
++  endif()
+ endif()
+ 
+ sdl_sources(${SDL3_SOURCE_DIR}/src/dialog/SDL_dialog.c)
+diff --git a/include/SDL3/SDL_platform_defines.h b/include/SDL3/SDL_platform_defines.h
+--- a/include/SDL3/SDL_platform_defines.h
++++ b/include/SDL3/SDL_platform_defines.h
+@@ -126,6 +126,19 @@
+ #define SDL_PLATFORM_UNIX 1
+ #endif
+ 
++#ifdef __PROSPERO__
++
++/**
++ * A preprocessor macro that is only defined if compiling for PlayStation 5.
++ */
++#define SDL_PLATFORM_PS5 1
++
++/* The PS5 toolchain predefines __FreeBSD__ and __unix__, but a native title has
++ * none of the desktop facilities SDL keys on them (GTK, dlopen/dlsym). */
++#undef SDL_PLATFORM_FREEBSD
++#undef SDL_PLATFORM_UNIX
++#endif
++
+ #ifdef __APPLE__
+ 
+ /**
+diff --git a/src/SDL.c b/src/SDL.c
+--- a/src/SDL.c
++++ b/src/SDL.c
+@@ -816,6 +816,8 @@ const char *SDL_GetPlatform(void)
+     return "tvOS";
+ #elif defined(SDL_PLATFORM_PS2)
+     return "PlayStation 2";
++#elif defined(SDL_PLATFORM_PS5)
++    return "PlayStation 5";
+ #elif defined(SDL_PLATFORM_PSP)
+     return "PlayStation Portable";
+ #elif defined(SDL_PLATFORM_VITA)
+diff --git a/src/dynapi/SDL_dynapi.h b/src/dynapi/SDL_dynapi.h
+--- a/src/dynapi/SDL_dynapi.h
++++ b/src/dynapi/SDL_dynapi.h
+@@ -65,6 +65,8 @@
+ #define SDL_DYNAMIC_API 0 // devkitARM doesn't support dynamic linking
+ #elif defined(SDL_PLATFORM_NGAGE)
+ #define SDL_DYNAMIC_API 0
++#elif defined(SDL_PLATFORM_PS5)
++#define SDL_DYNAMIC_API 0 // statically linked into the native title
+ #elif defined(DYNAPI_NEEDS_DLOPEN) && !defined(HAVE_DLOPEN)
+ #define SDL_DYNAMIC_API 0 // we need dlopen(), but don't have it....
+ #endif
 diff --git a/src/video/SDL_sysvideo.h b/src/video/SDL_sysvideo.h
 --- a/src/video/SDL_sysvideo.h
 +++ b/src/video/SDL_sysvideo.h
