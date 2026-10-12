@@ -17,7 +17,7 @@ work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 members=()
 for file in "${files[@]}"; do members+=("mesa-26.2.0/$file"); done
-tar -xJf "$archive" -C "$work" "${members[@]}"
+bsdtar -xJf "$archive" -C "$work" "${members[@]}"
 cp -a "$work/mesa-26.2.0" "$work/expected"
 patch --batch --forward -p1 -d "$work/expected" < "$patch_file" >/dev/null
 
