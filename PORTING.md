@@ -112,3 +112,30 @@ feature/sdl3-ps5 contains actual SDL3 PS5 development.
 
 If upstream later implements SDL3 support, compare their implementation with
 ours and prefer upstream code where practical.
+
+## Additional Implementation Guardrails
+
+### SDL platform detection
+Treat globally undefining SDL_PLATFORM_UNIX / SDL_PLATFORM_FREEBSD as experimental.
+If that causes broad SDL3 regressions, prefer narrow guards around unsupported
+facilities like GTK integration, dlopen/dlsym, or unavailable runtime services.
+
+### SDL source pin
+Before implementation begins, resolve and record the exact SDL 3.4.10 revision
+used by OpenGOAL. Compare against ../jak-project/third-party/SDL while keeping
+../jak-project read-only.
+
+### OpenGOAL isolation
+Do not modify ../jak-project during the SDL3 hardware milestone.
+
+Future OpenGOAL issues such as gladLoadGL/libGL behavior, SDL integration,
+fullscreen APIs, audio, filesystem, or runtime/JIT work are deferred.
+
+### Scope discipline
+Do not modify the root Makefile, CI configuration, release metadata, packaging
+metadata, licenses/notices, or unrelated infrastructure for the first SDL3
+hardware milestone.
+
+### Production correctness
+Do not weaken PS5 runtime validation to make host-side tests pass.
+Fix or isolate host-only test behavior instead.
