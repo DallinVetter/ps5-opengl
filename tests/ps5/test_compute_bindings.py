@@ -1354,7 +1354,10 @@ int main(void) {
     assert(descriptor[3]==0x90000204 && descriptor[4]==63 && descriptor[5]==0x400000);
     /* Native 4x multisample storage images retain their sample layout and
      * array sublayer addressing through the storage-image path. */
-    _Alignas(65536) static uint8_t msaa_pixels[131072];
+    static uint8_t msaa_storage[131072 + 65535];
+    uint8_t *msaa_pixels=(uint8_t *)(
+        ((uintptr_t)msaa_storage + 65535u) &
+        ~(uintptr_t)65535u);
     struct ps5_resource msaa=image;
     msaa.base.width0=8; msaa.base.height0=8;
     msaa.base.nr_samples=msaa.base.nr_storage_samples=4;
@@ -1367,7 +1370,7 @@ int main(void) {
     assert(((descriptor[5]>>4)&15)==2);
     assert(!ps5_resource_storage_image_descriptor_owned(&msaa.base,descriptor));
     msaa.base.target=PIPE_TEXTURE_2D_ARRAY; msaa.base.array_size=2;
-    msaa.size*=2; msaa.allocation_size=sizeof(msaa_pixels);
+    msaa.size*=2; msaa.allocation_size=131072;
     msaa.layer_stride=65536;
     assert(!ps5_resource_storage_image_descriptor(&msaa.base,0,descriptor));
     assert((descriptor[3]&0xf0000000u)==0xf0000000u && descriptor[4]==1);
@@ -1734,7 +1737,10 @@ int main(void) {
     }
     /* Exact graphics-compatible tiled RGBA8 SRD, with a physical footprint
      * larger than the logical texels. Malformed backing must remain rejected. */
-    static _Alignas(65536) uint8_t tiled_pixels[262144];
+    static uint8_t tiled_storage[262144 + 65535];
+    uint8_t *tiled_pixels=(uint8_t *)(
+        ((uintptr_t)tiled_storage + 65535u) &
+        ~(uintptr_t)65535u);
     const enum pipe_format ms_formats[]={PIPE_FORMAT_R32_FLOAT,PIPE_FORMAT_R32G32B32A32_FLOAT,
         PIPE_FORMAT_R8G8B8A8_UNORM,PIPE_FORMAT_R8G8B8A8_SINT,PIPE_FORMAT_R8G8B8A8_UINT};
     for(unsigned f=0;f<5;++f) for(unsigned array=0;array<2;++array) {
@@ -1777,7 +1783,7 @@ int main(void) {
     tiled.level_offset[0]=0;
     tiled.allocation_size=65536;
     assert(!ps5_linear_sampled_layout(&tiled.base));
-    assert(ps5_tiled_color_surface_size(tiled.base.format,129,129)==sizeof(tiled_pixels));
+    assert(ps5_tiled_color_surface_size(tiled.base.format,129,129)==262144);
     assert(!ps5_resource_storage_image_descriptor(&tiled.base,0,descriptor));
     const uint32_t tiled_srd[8]={
         (uint32_t)((uintptr_t)tiled.data>>8),
