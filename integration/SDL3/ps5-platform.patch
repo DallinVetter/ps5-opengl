@@ -1,0 +1,28 @@
+# PS5 OpenGL contributions: Copyright (C) 2026 BlackBearReloaded.
+# PS5 platform adaptation of SDL release-3.4.10; upstream SDL's zlib notices remain applicable.
+# Registers the out-of-tree PS5 video driver (integration/SDL3/SDL_ps5video.c).
+
+diff --git a/src/video/SDL_sysvideo.h b/src/video/SDL_sysvideo.h
+--- a/src/video/SDL_sysvideo.h
++++ b/src/video/SDL_sysvideo.h
+@@ -530,6 +530,7 @@ extern VideoBootStrap HAIKU_bootstrap;
+ extern VideoBootStrap UIKIT_bootstrap;
+ extern VideoBootStrap Android_bootstrap;
+ extern VideoBootStrap PS2_bootstrap;
++extern VideoBootStrap PS5_bootstrap;
+ extern VideoBootStrap PSP_bootstrap;
+ extern VideoBootStrap VITA_bootstrap;
+ extern VideoBootStrap RISCOS_bootstrap;
+diff --git a/src/video/SDL_video.c b/src/video/SDL_video.c
+--- a/src/video/SDL_video.c
++++ b/src/video/SDL_video.c
+@@ -89,6 +89,9 @@ static VideoBootStrap *bootstrap[] = {
+ #ifdef SDL_VIDEO_DRIVER_PRIVATE
+     &PRIVATE_bootstrap,
+ #endif
++#ifdef SDL_VIDEO_DRIVER_PS5
++    &PS5_bootstrap,
++#endif
+ #ifdef SDL_VIDEO_DRIVER_COCOA
+     &COCOA_bootstrap,
+ #endif

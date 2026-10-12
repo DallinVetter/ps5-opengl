@@ -48,3 +48,60 @@ diff -rq --strip-trailing-cr --exclude=.git third_party/SDL ../jak-project/third
 
 So a patch that applies to this pin applies unchanged to OpenGOAL's copy. Repeat
 the comparison whenever either side moves.
+
+## Video driver
+
+[SDL_ps5video.c](SDL_ps5video.c) is compiled into `SDL3-static` by the
+[CMake wrapper](CMakeLists.txt) and registered as the `ps5` video driver by
+[ps5-platform.patch](ps5-platform.patch). It talks to the SDK's statically linked
+EGL directly; SDL's own EGL layer, renderer and GPU API are not built.
+
+| SDL object | EGL object | Lifetime |
+|---|---|---|
+| video device | `EGLDisplay` | `SDL_Init` to `SDL_Quit`; terminated only after the context and surface are gone |
+| the one window | the one window `EGLSurface` | `SDL_CreateWindow` to `SDL_DestroyWindow` |
+| `SDL_GLContext` | the one unshared `EGLContext` | may outlive the window and be rebound to the next one |
+
+- The device is fullscreen-only: SDL sizes every window to the fixed display
+  profile from `<ps5_opengl_display.h>`, whatever size or `SDL_WINDOW_RESIZABLE`
+  flag a desktop consumer passes. A second window, a non-OpenGL window, MSAA,
+  sRGB, stereo and single-buffered configs are rejected.
+- Contexts: 3.3 to 4.6 Core, or Compatibility up to 4.6, with only the debug and
+  forward-compatible flags. Requests with no flags reach EGL with the same
+  attribute list as the SDL2 driver.
+- ps5-opengl owns scanout and presentation. `SDL_GL_SwapWindow` is
+  `eglSwapBuffers`; the swap interval is 0 or 1.
+- Window and context calls must come from the thread that initialised video.
+- `SDL_GL_GetProcAddress` works while a GL window exists (SDL holds the GL
+  library reference through the window); a non-NULL `SDL_GL_LoadLibrary` path is
+  rejected because GL is statically linked.
+- If EGL refuses a cleanup step, the handle stays recorded rather than being
+  freed underneath EGL, and the refusal is logged as an SDL video error. SDL3's
+  destroy and quit hooks cannot fail, and SDL3 leaves benign messages in
+  `SDL_GetError()` after successful calls, so the log is the only reliable signal.
+
+Differences from the SDL2 driver are deliberate SDL3 adaptations: SDL3's
+fullscreen-only capability replaces the size-rejection logic, SDL's video-thread
+record replaces the private one, and there is no `SDL_SetWindowSize` hook, so
+that call reports "not supported" and leaves the size unchanged.
+
+## Host contract
+
+Real SDL3 and the real driver run against an EGL boundary double under
+ASan/UBSan. This exercises ownership, ordering and error paths. It involves no
+GPU, no PS5 toolchain and no PS5 runtime, and is not evidence of hardware
+behaviour.
+
+```sh
+python3 integration/SDL3/build.py host --sdl-source third_party/SDL \
+    --sdk-prefix build/sdk/ps5-opengl-gl46 --out build/sdl3-host
+```
+
+`--out` must be a new directory below `build/`. The SDK prefix is verified with
+the same checks as the SDL2 lane before anything is built.
+
+## Not done yet
+
+The PS5 platform part of the patch (threads, timers, platform detection), the
+native build, the native folder link and the hardware run. Gamepad support
+follows the hardware milestone.
