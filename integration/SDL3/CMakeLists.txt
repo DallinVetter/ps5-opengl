@@ -35,9 +35,14 @@ target_compile_definitions(SDL3-static PRIVATE SDL_VIDEO_DRIVER_PS5=1 SDL_VIDEO_
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/SDL_ps5video.c"
     TARGET_DIRECTORY SDL3-static
     PROPERTIES INCLUDE_DIRECTORIES "${PS5_OPENGL_PREFIX}/include")
+add_library(sdl3-ps5-example OBJECT example.c)
+target_link_libraries(sdl3-ps5-example PRIVATE SDL3::SDL3-static)
+target_include_directories(sdl3-ps5-example PRIVATE "${PS5_OPENGL_PREFIX}/include")
+target_compile_options(sdl3-ps5-example PRIVATE -Wall -Wextra -Werror)
 if(PS5_SDL3_HOST_TEST)
-    # Keep the mock outside the driver: no SDL API is mocked.
-    add_executable(sdl3-ps5-contract test_contract.c)
+    # Keep the mock outside the consumer and driver: no SDL API is mocked.
+    add_executable(sdl3-ps5-contract test_contract.c $<TARGET_OBJECTS:sdl3-ps5-example>)
+    target_compile_definitions(sdl3-ps5-example PRIVATE main=sdl3_ps5_example_main)
     target_compile_options(sdl3-ps5-contract PRIVATE -UNDEBUG -Wall -Wextra -Werror)
     target_include_directories(sdl3-ps5-contract PRIVATE "${PS5_OPENGL_PREFIX}/include")
     target_link_libraries(sdl3-ps5-contract PRIVATE SDL3::SDL3-static)

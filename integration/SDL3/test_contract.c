@@ -16,6 +16,8 @@ static int display_token, config_token, surface_token, context_token;
 #define SURFACE ((EGLSurface)&surface_token)
 #define CONTEXT ((EGLContext)&context_token)
 static int initialized, surface_live, context_live, current, swaps, creates, destroys;
+static unsigned reads, clears;
+static GLfloat color[4];
 static EGLint context_version, context_profile, context_flags, config_depth, config_stencil;
 static const char *failure;
 static EGLint error_code;
@@ -80,7 +82,7 @@ EGLContext eglCreateContext(EGLDisplay d, EGLConfig c, EGLContext share, const E
     if (fail("context")) return EGL_NO_CONTEXT;
     context_version = a[1] * 10 + a[3]; context_profile = a[5];
     context_flags = a[6] == EGL_NONE ? 0 : a[7];
-    context_live = 1; return CONTEXT;
+    context_live = 1; clears = 0; return CONTEXT;
 }
 EGLBoolean eglMakeCurrent(EGLDisplay d, EGLSurface draw, EGLSurface read, EGLContext c)
 {
@@ -107,12 +109,48 @@ EGLBoolean eglSwapInterval(EGLDisplay d, EGLint i)
 EGLBoolean eglSwapBuffers(EGLDisplay d, EGLSurface s)
 { assert(d == DISPLAY && s == SURFACE && current); if (fail("swap")) return EGL_FALSE; ++swaps; return EGL_TRUE; }
 
+/* The double reports the context EGL was asked for; EGL and GL share the profile bit values. */
+static void APIENTRY mock_integer(GLenum name, GLint *v)
+{
+    assert(current);
+    *v = name == GL_MAJOR_VERSION ? context_version / 10 :
+         name == GL_MINOR_VERSION ? context_version % 10 :
+         name == GL_CONTEXT_PROFILE_MASK ? context_profile : 0;
+    if (name == GL_MINOR_VERSION && fail("old-version")) *v -= 1;
+    if (name == GL_CONTEXT_PROFILE_MASK && fail("compatibility")) *v = GL_CONTEXT_COMPATIBILITY_PROFILE_BIT;
+}
+static const GLubyte *APIENTRY mock_string(GLenum name)
+{
+    (void)name; assert(current);
+    if (fail("quit")) { SDL_Event event; SDL_zero(event); event.type = SDL_EVENT_QUIT; assert(SDL_PushEvent(&event)); }
+    return (const GLubyte *)"4.3 host contract double";
+}
+static void APIENTRY mock_viewport(GLint x, GLint y, GLsizei w, GLsizei h)
+{ assert(current && x == 0 && y == 0 && w == PS5_OPENGL_NATIVE_WIDTH && h == PS5_OPENGL_NATIVE_HEIGHT); }
+static void APIENTRY mock_color(GLfloat r, GLfloat g, GLfloat b, GLfloat a)
+{ assert(current); color[0] = r; color[1] = g; color[2] = b; color[3] = a; }
+static void APIENTRY mock_clear(GLbitfield bits)
+{ assert(current && bits == GL_COLOR_BUFFER_BIT); ++clears; }
+static void APIENTRY mock_read(GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum type, void *data)
+{
+    GLubyte *pixel = data;
+    assert(current && x == PS5_OPENGL_NATIVE_WIDTH / 2 && y == PS5_OPENGL_NATIVE_HEIGHT / 2 && w == 1 && h == 1);
+    assert(format == GL_RGBA && type == GL_UNSIGNED_BYTE && data);
+    assert(clears == 1 || clears == 180); ++reads;
+    for (unsigned channel = 0; channel < 4; ++channel)
+        pixel[channel] = (GLubyte)(color[channel] * 255.0f + 0.5f);
+    if (fail("tolerance")) ++pixel[2];
+    if ((clears == 1 && fail("pixel0")) || (clears == 180 && fail("pixel179"))) pixel[2] += 2;
+}
 static GLenum APIENTRY mock_error(void) { assert(current); return GL_NO_ERROR; }
 __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *name)
 {
     if (fail("proc")) return NULL;
 #define PROC(n, f) if (!strcmp(name, n)) return (__eglMustCastToProperFunctionPointerType)f
-    PROC("glGetError", mock_error);
+    PROC("glGetIntegerv", mock_integer); PROC("glGetString", mock_string);
+    PROC("glViewport", mock_viewport); PROC("glClearColor", mock_color);
+    PROC("glClear", mock_clear); PROC("glGetError", mock_error);
+    PROC("glReadPixels", mock_read);
 #undef PROC
     return NULL;
 }
@@ -192,6 +230,7 @@ static int other_thread(void *data)
     return 0;
 }
 
+extern int sdl3_ps5_example_main(int argc, char **argv);
 int main(void)
 {
     SDL_Window *w;
@@ -200,7 +239,8 @@ int main(void)
     SDL_DisplayID *displays, display;
     SDL_DisplayMode **modes;
     SDL_Rect bounds;
-    int count = 0, interval = -1, seen = 0;
+    int count = 0, interval = -1, seen = 0, base;
+    const char *example_failures[] = {"width", "height", "proc", "old-version", "compatibility"};
     const char *init_failures[] = {"display", "initialize"};
     const char *window_failures[] = {"config", "no-config", "surface", "query", "width", "height"};
     const char *context_failures[] = {"bind", "context", "current"};
@@ -321,6 +361,26 @@ int main(void)
     assert(cleanup_errors == 1 && surface_live);
     assert(!window() && surface_live);
     SDL_Quit(); clean(); assert(cleanup_errors == 1);
+    /* The consumer installs its own log output from here on. */
+    for (unsigned i = 0; i < SDL_arraysize(example_failures); ++i) {
+        failure = example_failures[i]; assert(sdl3_ps5_example_main(0, NULL) == 1); clean();
+    }
+    base = swaps; reads = 0;
+    assert(sdl3_ps5_example_main(0, NULL) == 0); clean(); assert(swaps == base + 180 && reads == 2);
+    assert(context_version == 43 && context_profile == EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR);
+    assert(!context_flags && config_depth == 16 && !config_stencil); /* SDL's defaults. */
+    failure = "swap"; assert(sdl3_ps5_example_main(0, NULL) == 1); clean();
+    failure = "pixel0"; assert(sdl3_ps5_example_main(0, NULL) == 1); clean();
+    assert(swaps == base + 180 && reads == 4);
+    failure = "pixel179"; assert(sdl3_ps5_example_main(0, NULL) == 1); clean();
+    assert(swaps == base + 359 && reads == 6);
+    failure = "tolerance"; assert(sdl3_ps5_example_main(0, NULL) == 0); clean();
+    assert(swaps == base + 539 && reads == 8);
+    failure = "quit"; assert(sdl3_ps5_example_main(0, NULL) == 0); clean();
+    assert(swaps == base + 539 && reads == 8); /* Early exit is valid but not full acceptance. */
+    /* A refused teardown must fail the consumer even though every call it made succeeded. */
+    failure = "destroy-surface"; assert(sdl3_ps5_example_main(0, NULL) == 1); clean();
+    assert(swaps == base + 719 && reads == 10);
     printf("SDL3 PS5 host contract: PASS %dx%d nominal=%dHz (no GPU or PS5 hardware)\n",
            PS5_OPENGL_NATIVE_WIDTH, PS5_OPENGL_NATIVE_HEIGHT, PS5_OPENGL_NATIVE_FPS);
     return 0;

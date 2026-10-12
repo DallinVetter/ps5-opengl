@@ -100,6 +100,26 @@ python3 integration/SDL3/build.py host --sdl-source third_party/SDL \
 `--out` must be a new directory below `build/`. The SDK prefix is verified with
 the same checks as the SDL2 lane before anything is built.
 
+## Example
+
+[example.c](example.c) is an ordinary SDL3 consumer and the intended first
+hardware test: `SDL_Init`, one window, an OpenGL 4.3 Core context,
+`SDL_GL_MakeCurrent`, `SDL_GL_GetProcAddress`, 180 frames of clear and
+`SDL_GL_SwapWindow` with `SDL_PollEvent`, two centre-pixel readbacks, then
+ordered teardown. It refuses a context below 4.3 or without the Core profile
+bit, and fails if any error-priority SDL log message appears, which is how a
+refused teardown becomes visible. A passing run prints:
+
+```
+[sdl3-ps5] GL=<version string> version=4.3 core=1 drawable=1920x1080 nominal_refresh=60Hz (not negotiated HDMI)
+[sdl3-ps5] probe frame=0 rgba=0,38,102,255 expected=0,38,102,255 pass=1
+[sdl3-ps5] probe frame=179 rgba=254,38,102,255 expected=254,38,102,255 pass=1
+[sdl3-ps5] frames=180 probes=2 status=0
+```
+
+The host contract links the same object and drives it through its success and
+failure paths against the EGL/GL double.
+
 ## Not done yet
 
 The PS5 platform part of the patch (threads, timers, platform detection), the
