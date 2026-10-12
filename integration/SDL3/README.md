@@ -158,20 +158,63 @@ refused teardown becomes visible. A passing run prints:
 The host contract links the same object and drives it through its success and
 failure paths against the EGL/GL double.
 
-## Native build
+## Native build and folder
+
+Nothing below runs on a console. It needs the pinned native-app boilerplate
+(`native_boilerplate.revision` in `dependencies.json`) with its payload SDK set
+up, and `clang-18`.
 
 ```sh
 template=/path/to/ps5-native-app-boilerplate    # at the pinned revision
+sdk=build/sdk/ps5-opengl-gl46
+
 python3 integration/SDL3/build.py native --sdl-source third_party/SDL \
-    --sdk-prefix build/sdk/ps5-opengl-gl46 --out build/sdl3-native \
+    --sdk-prefix "$sdk" --out build/sdl3-native \
     --payload-sdk "$template/.deps/native/ps5-payload-sdk" \
     --compiler-wrapper "$template/tooling/prospero-clang18"
+
+python3 integration/SDL3/folder.py --native-build build/sdl3-native \
+    --template "$template" --sdk-prefix "$sdk" --out build/sdl3-folder
 ```
 
-This compiles `cmake/sdl/libSDL3.a` and the example object for PS5. It links
-nothing and runs nothing.
+`build.py native` produces `cmake/sdl/libSDL3.a` and the example object.
+`folder.py` follows the SDL2 lane: it copies the template and its payload SDK
+into the new stage, adds the unchanged `native-app/` shims, heap wrappers and
+linker script, links with the template's own `tools/build.sh`, and runs
+`tools/verify-native-test-app.sh`. It refuses a template that is not at the
+pinned revision and never rebuilds the runtime libc: `runtime/libc.prx` must
+match the template's `libc.prx.sha256`. For a template checkout that has not
+built its own, pass a matching file with `--libc-prx`, for example the one in an
+existing `build/native-app/PPSA99005/runtime/`.
 
-## Not done yet
+Results:
 
-Assembling the native folder and the hardware run. Gamepad support follows the
-hardware milestone.
+```
+build/sdl3-folder/dist/PPSA99005/     the title folder (eboot.bin, sce_module, sce_sys)
+build/sdl3-folder/candidate.json      SDL, template, SDK and per-file SHA-256 identities
+build/sdl3-folder/selected-test.txt   egl_public_core43_sdl3.o
+```
+
+The title ID is the shared `PPSA99005`, so deploying it replaces whichever
+PS5 OpenGL test is installed. The folder link is also the check that every libc
+symbol SDL uses is really exported: the template's linker rejects symbols that
+only its weak header stubs provide. Compared with the hardware-proven ImGui demo
+the title imports 50 more symbols (math, stdio, `sem_*`, `pthread_rwlock_*`,
+thread scheduling, `sigaction`, `environ`), all from `libkernel` or
+`libSceLibcInternal`. Whether they behave on a console is what the hardware run
+decides.
+
+## Hardware run
+
+Not done. Deploy `build/sdl3-folder/dist/PPSA99005` the same way as the other
+`PPSA99005` gates ([Testing](../../docs/testing.md)), launch it, and collect
+`/download0/ps5-opengl.log`. Acceptance is the four `[sdl3-ps5]` lines shown
+under [Example](#example) with a version of 4.3 or higher, followed by
+
+```
+[ps5-opengl-native] gate completed status=0
+```
+
+Until then the receipts and manifests, the SDK bundle, the root `Makefile` and
+CI targets, and licence notices for SDL3 are deliberately untouched. Gamepad
+support follows the hardware milestone.
